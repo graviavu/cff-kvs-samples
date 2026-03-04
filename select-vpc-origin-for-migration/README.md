@@ -29,6 +29,47 @@ Distributes traffic based on a percentage split:
 - `weight_percentage` determines the percentage of traffic sent to private origin
 - Example: `"weight_percentage": 5` sends 5% to private origin, 95% to public origin
 
+#### How the Hashing Logic Works
+
+The function uses a deterministic hashing algorithm to ensure consistent routing for each client:
+
+1. **Hash Generation**: Each viewer's IP address is converted to a numeric hash value using a simple hash function
+2. **Bucket Assignment**: The hash is reduced to a value between 0-99 using modulo operation (`hash % 100`)
+3. **Routing Decision**: If the bucket value is less than `weight_percentage`, route to private origin; otherwise, route to public origin
+
+**Example:**
+```javascript
+// IP: 192.168.1.100
+// Hash: 1234567
+// Bucket: 1234567 % 100 = 67
+
+// With weight_percentage = 50:
+// 67 < 50? No → Routes to PUBLIC origin
+
+// With weight_percentage = 75:
+// 67 < 75? Yes → Routes to PRIVATE origin
+```
+
+**Key Benefits:**
+- **Consistency**: The same IP address always produces the same hash, ensuring users stay on the same origin
+- **Stickiness**: Users don't flip-flop between origins during a session
+- **Gradual Migration**: As you increase weight_percentage, different users gradually shift to the private origin
+- **Stateless**: No need to store routing decisions; the hash function determines routing on every request
+
+**Important Limitation:**
+- The distribution is **approximate**, not exact. With a small number of unique IPs, the actual traffic split may differ from the configured percentage
+- Example: With only 10 unique IPs, you might see 30% or 40% instead of exactly 25%
+- The distribution becomes more accurate as the number of unique visitor IPs increases
+- For production traffic with hundreds or thousands of unique IPs, the actual distribution will closely match your configured weight_percentage
+
+**Migration Example:**
+- At 25% weight: IPs with bucket values 0-24 go to private (25% of traffic)
+- At 50% weight: IPs with bucket values 0-49 go to private (50% of traffic)
+- At 75% weight: IPs with bucket values 0-74 go to private (75% of traffic)
+- At 100% weight: All IPs go to private (100% of traffic)
+
+For detailed examples with specific IP addresses and their routing behavior, see `hashing-examples.md`.
+
 ## Configuration
 
 ### Key Value Store Setup
@@ -149,6 +190,11 @@ You can find these values in your CloudFront distribution under the **Origins** 
 ## Important Notes
 
 - The function uses viewer IP hashing for weighted distribution to ensure consistent routing per client
+  - Each IP address is hashed to a value between 0-99
+  - The same IP always gets the same routing decision (sticky sessions)
+  - As you increase weight_percentage, users gradually shift from public to private origin
+  - **Note:** The traffic split is approximate and depends on having enough unique visitor IPs. With small traffic volumes, actual percentages may vary from the configured value
+  - See `hashing-examples.md` for detailed examples of how specific IPs are routed
 - **Before deploying:** Update `PUBLIC_ORIGIN_DOMAIN` and `PRIVATE_ORIGIN_ID` variables in the function code to match your actual origins
 - Monitor CloudWatch metrics during migration to catch issues early
 - Keep the function and KVS until all cache behaviors are migrated
@@ -156,8 +202,9 @@ You can find these values in your CloudFront distribution under the **Origins** 
 
 ## Additional Resources
 
-Additional examples can be viewed at [amazon-cloudfront-functions](https://github.com/aws-samples/amazon-cloudfront-functions) (aws-samples GitHub).
+- Additional examples can be viewed at [amazon-cloudfront-functions](https://github.com/aws-samples/amazon-cloudfront-functions) (aws-samples GitHub)
+- For detailed IP hashing examples and routing behavior, see `hashing-examples.md`
 
 ## Function Code Example
 
-See `OriginSelectionByHeader.js` for the complete implementation.
+See `VPCOriginSelectionByHeader.js` for the complete implementation.
